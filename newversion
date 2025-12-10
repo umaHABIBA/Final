@@ -8,7 +8,11 @@ import tflite_runtime.interpreter as tflite
 MONITORED_FOODS = ["apple", "banana", "orange"] 
 YOUR_EMAIL = "snoopypeanuts124@gmail.com"
 YOUR_APP_PASSWORD = "Umma&Nuha"
-SEND_TO_EMAIL = [umma.h.begum07@gmail.com, nuhaashraf101@gmail.com]
+SEND_TO_EMAIL = [
+    "umma.h.begum07@gmail.com",
+    "nuhaashraf101@gmail.com"
+]
+
 
 led = LED(18)
 
