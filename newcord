@@ -1,0 +1,121 @@
+import cv2
+import numpy as np
+import smtplib
+import time
+from gpiozero import LED
+import tflite_runtime.interpreter as tflite
+import os
+
+
+# -------------------------------
+# CONFIGURATION
+# -------------------------------
+MONITORED_FOODS = ["apple", "banana", "orange"]
+
+YOUR_EMAIL = "snoopypeanuts124@gmail.com"
+YOUR_APP_PASSWORD = os.getenv("GMAIL_APP_PASSWORD")  # Loaded safely from environment
+SEND_TO_EMAIL = [
+    "umma.h.begum07@gmail.com",
+    "nuhaashraf101@gmail.com"
+]
+
+if YOUR_APP_PASSWORD is None:
+    raise ValueError("❌ ERROR: GMAIL_APP_PASSWORD environment variable is missing.")
+
+
+# -------------------------------
+# LED SETUP
+# -------------------------------
+led = LED(18)
+
+
+# -------------------------------
+# LOAD LABELS
+# -------------------------------
+labels = {}
+with open("coco_labels.txt", "r") as f:
+    for i, line in enumerate(f):
+        labels[i] = line.strip()
+
+
+# -------------------------------
+# LOAD TFLITE MODEL
+# -------------------------------
+interpreter = tflite.Interpreter(model_path="coco_ssd_mobilenet_v1_1.0.tflite")
+interpreter.allocate_tensors()
+input_details = interpreter.get_input_details()
+output_details = interpreter.get_output_details()
+
+
+# -------------------------------
+# EMAIL FUNCTION
+# -------------------------------
+def send_email(missing_items):
+    subject = "Community Fridge Alert"
+    body = f"The following items are missing from the fridge: {', '.join(missing_items)}"
+
+    message = f"Subject: {subject}\n\n{body}"
+
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+        server.login(YOUR_EMAIL, YOUR_APP_PASSWORD)
+        server.sendmail(YOUR_EMAIL, SEND_TO_EMAIL, message)
+
+    print("📧 Email Sent!")
+
+
+# -------------------------------
+# CAMERA LOOP
+# -------------------------------
+cap = cv2.VideoCapture(0)
+print("🔍 Smart fridge monitor running...")
+
+last_email_time = 0
+
+while True:
+    ret, frame = cap.read()
+    if not ret:
+        print("⚠️ Camera error: unable to read frame.")
+        continue
+
+    # Preprocess the image for the model
+    img = cv2.resize(frame, (300, 300))
+    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    img = img.astype(np.float32) / 255.0
+    img = np.expand_dims(img, axis=0)
+
+    interpreter.set_tensor(input_details[0]['index'], img)
+    interpreter.invoke()
+
+    scores = interpreter.get_tensor(output_details[2]['index'])[0]
+    classes = interpreter.get_tensor(output_details[1]['index'])[0]
+
+    detected_foods = set()
+
+    # Identify detected foods
+    for i in range(len(scores)):
+        if scores[i] > 0.5:
+            item = labels.get(int(classes[i]), "")
+            if item in MONITORED_FOODS:
+                detected_foods.add(item)
+
+    # Compare with required food list
+    missing = [item for item in MONITORED_FOODS if item not in detected_foods]
+
+    if missing:
+        print("❌ Missing:", missing)
+
+        # Blink LED
+        led.on()
+        time.sleep(0.3)
+        led.off()
+
+        # Send email every 60 seconds max
+        if time.time() - last_email_time > 60:
+            send_email(missing)
+            last_email_time = time.time()
+
+    else:
+        print("✔️ All items present.")
+        led.off()
+
+cap.release()
